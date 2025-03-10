@@ -156,9 +156,11 @@ biomarkers_all <- c("lymph", "mcv", "rbc", "rdw", "wbc", "dbp","sbp", "meanbp", 
 #these are the top 7 biomarkers from the PCA output (I picked 7 since then that's equivalent to number significant)
 biomarkers_PCA <- c("meanbp", "sbp", "dbp", "pulse", "rbc", "rdw", "mcv")
 
-#these are the top 7 significant
+#these are the top 7 significant forward
 biomarkers_FF <- c("lymph", "mcv", "rbc", "rdw", "wbc", "sbp", "phpfast")
 
+#these are the biomarkers that are not correlated based on the correlation matrix
+biomarkers_corr <- c("lymph", "mcv", "rbc", "rdw", "wbc", "dbp","sbp", "phpfast")
 
 
 #training the models 
@@ -265,19 +267,58 @@ NHANES4 <- NHANES4_FF
 NHANES3 <- NHANES3_FF
 kdm_FF <- kdm_nhanes(biomarkers = biomarkers_FF)
 
+#correlation matrix
+load("/Users/kedda/Downloads/bios26211projectfinal/NHANES3.rda")
+load("/Users/kedda/Downloads/bios26211projectfinal/NHANES4.rda")
+
+#for this, we will drop meanbp and pulse, as there is one per pair
+biomarkers_with_age_corr <- c("age","lymph", "mcv", "rbc", "rdw", "wbc", "dbp","sbp", "phpfast")
+
+NHANES4_imputed <- NHANES4
+for (col in biomarkers_with_age_corr) {
+  if (col %in% colnames(NHANES4_imputed)) { 
+    NHANES4_imputed[[col]][is.na(NHANES4_imputed[[col]])] <- mean(NHANES4_imputed[[col]], na.rm = TRUE)
+  }
+}
+NHANES3_imputed <- NHANES3
+for (col in biomarkers_with_age_corr) {
+  if (col %in% colnames(NHANES3_imputed)) {
+    NHANES3_imputed[[col]][is.na(NHANES3_imputed[[col]])] <- mean(NHANES3_imputed[[col]], na.rm = TRUE)
+  }
+}
+
+
+
+
+biomarkers_with_age_preg_corr <- c("sampleID","age","pregnant", "gender", "lymph", "mcv", "rbc", "rdw", "wbc", "dbp","sbp", "phpfast")
+
+NHANES4_corr <- NHANES4_imputed
+NHANES4_corr <- NHANES4_corr[, biomarkers_with_age_preg_corr]
+head(NHANES4_corr)
+
+NHANES3_corr <- NHANES3_imputed
+NHANES3_corr <- NHANES3_corr[, biomarkers_with_age_preg_corr]
+head(NHANES3_corr)
+
+NHANES4 <- NHANES4_corr
+NHANES3 <- NHANES3_corr
+kdm_corr <- kdm_nhanes(biomarkers = biomarkers_corr)
 
 #used claude for help with merging step, turns out you can only merge 2 at a time?
 kdm_data <- merge(kdm_all$data, kdm_PCA$data, by = "sampleID", suffixes = c("_all", "_PCA"))
 kdm_data <- merge(kdm_data, kdm_FF$data, by = "sampleID", suffixes = c("", "_forward"))
+kdm_data <- merge(kdm_data, kdm_corr$data, by = "sampleID", suffixes = c("", "_corr"))
+
 colnames(kdm_data)[which(colnames(kdm_data) == "kdm")] <- "kdm_FF"
+colnames(kdm_data)[which(colnames(kdm_data) == "kdm_corr")] <- "kdm_corr"
 
-agevar <- c("kdm_all", "kdm_PCA", "kdm_FF")
+agevar <- c("kdm_all", "kdm_PCA", "kdm_FF", "kdm_corr")
 
-label = c("KDM\nBiological Age (All Biomarkers)",
-          "KDM\nBiological Age (Top 7 Biomarkers from PCA)",
-          "KDM\nBiological Age (Top 7 Biomarkers from Forward Model)")
+label = c("All Biomarkers",
+          "Top 7 Biomarkers from PCA",
+          "Top 7 Biomarkers from Forward Model", "Correlation Reduced Model")
           
-par(pin = c(20, 4))
+par(pin = c(24, 4))
 plot_ba(kdm_data, agevar, label)
 
 #phenoage using NHANES
