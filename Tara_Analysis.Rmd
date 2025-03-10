@@ -69,9 +69,40 @@ hd_result <- hd_calc(NHANES4_imputed, NHANES3_imputed, biomarkers_with_age)
 hd_data_filtered <- hd_data[, biomarkers_with_age]
 head(hd_data_filtered)
 
-#scaling data so can use it for PCA and matrix analysis
-NHANES4_scaled <- NHANES4_imputed
+
+
+biomarkers <- c("lymph", "mcv", "rbc", "rdw", "wbc", "dbp","sbp", "meanbp", "pulse", "phpfast")
+
+NHANES4_imfil <- NHANES4_imputed
+NHANES4_imfil <- NHANES4_imfil[, biomarkers]
+head(NHANES4_imfil)
+
+NHANES3_imfil <- NHANES3_imputed
+NHANES3_imfil <- NHANES3_imfil[, biomarkers]
+head(NHANES3_imfil)
+
+#scaling data so can use it for PCA and matrix analysis BUT since NHANES4 is trained on NHANES3 and also I just want to standardize it, I'm using the means/SDs from NHANES3 to scale it
+NHANES3_stats <- list()
+
 for (col in biomarkers_with_age) {
-  NHANES4_scaled[[col]] <- scale(NHANES4_scaled[[col]])
+  NHANES3_stats[[col]] <- list(
+    mean = mean(NHANES3_imputed[[col]], na.rm = TRUE),
+    sd = sd(NHANES3_imputed[[col]], na.rm = TRUE)
+  )
+}
+
+NHANES3_scaled <- NHANES3_imfil
+NHANES4_scaled <- NHANES4_imfil
+
+for (col in biomarkers) {
+  NHANES3_scaled[[col]] <- (NHANES3_scaled[[col]] - NHANES3_stats[[col]]$mean) / NHANES3_stats[[col]]$sd
+  NHANES4_scaled[[col]] <- (NHANES4_scaled[[col]] - NHANES3_stats[[col]]$mean) / NHANES3_stats[[col]]$sd
 }
 head(NHANES4_scaled)
+
+#now that it's scaled, making a correlation matrix so i can see which are most correlated, used claude and https://cran.r-project.org/web/packages/ggcorrplot/readme/README.html to help with formatting
+cor_matrix <- cor(NHANES4_scaled[, biomarkers])
+ggcorrplot(cor_matrix, method = "square", type = "lower", lab = TRUE, outline.color = "black", colors = c("#009e73", "white", "#cc79a7"), title = "Correlation Matrix for Biomarkers With <10% Missing Data")
+
+
+#
