@@ -31,7 +31,7 @@ library(BioAge)
 colSums(is.na(NHANES4))
 #there ended up being a ton, so now I am going to compute the percent that is missing from each so I can choose only those that have enough data.
 missing_perc <- colSums(is.na(NHANES4)) / nrow(NHANES4)
-print(percent_missing)
+print(missing_perc)
 #looking at data visually, I decided that those with over 10% missing should be excluded from the biomarkers chosen
 NHANES4_filtered <- NHANES4[, missing_perc < 0.1]
 str(NHANES4_filtered)
@@ -61,6 +61,7 @@ for (col in biomarkers_with_age) {
 
 
 hd_result <- hd_calc(NHANES4_imputed, NHANES3_imputed, biomarkers_with_age)
+hd_data <- hd_result$data
 
 #this is the data with JUST the biomarkers I want
 hd_data_filtered <- hd_data[, biomarkers_with_age]
@@ -122,12 +123,252 @@ fviz_eig(pca_res, title = "Scree Plot of BioMarkers", add_labels = TRUE)
 top_10_PCA <- names(sort(pca_res$var$contrib[,1], decreasing = TRUE))[1:10]
 print(top_10_PCA)
 
-#forward model?
+#forward model!
 install.packages("MASS", repos="http://cran.us.r-project.org")
 library(MASS)
 
-full_model <- lm(Biological_Age ~ ., data = NHANES4_scaled)
+biomarkers <- c("lymph", "mcv", "rbc", "rdw", "wbc", "dbp","sbp", "meanbp", "pulse", "phpfast")
+
+NHANES4_scaled <- NHANES4_imputed
+for (col in biomarkers) {
+  NHANES4_scaled[[col]] <- scale(NHANES4_scaled[[col]])
+}
+
+head(NHANES4_scaled)
+
+full_model <- lm(kdm0 ~ ., data = NHANES4_scaled[, c("kdm0", biomarkers)])
 
 step_model <- stepAIC(full_model, direction = "forward")
 
 summary(step_model)
+
+#from the summary, we see that the significant biomarkers are lymph, mcv, rbc, rdw, wbc, sbp, and phpfast. the insignificant biomarkers are dbp, meanbp, and pulse. now, I want to reform their plots for their three methods of determining biological age
+
+#this following section is partially adapted from https://github.com/dayoonkwon/BioAge/blob/master/README.md 
+
+library(BioAge)
+library(dplyr)
+
+
+#setting it so it trains on both ALL of the biomarkers, the PCA top 4, also just the top contributors
+biomarkers_all <- c("lymph", "mcv", "rbc", "rdw", "wbc", "dbp","sbp", "meanbp", "pulse", "phpfast")
+
+#these are the top 7 biomarkers from the PCA output (I picked 7 since then that's equivalent to number significant)
+biomarkers_PCA <- c("meanbp", "sbp", "dbp", "pulse", "rbc", "rdw", "mcv")
+
+#these are the top 7 significant
+biomarkers_FF <- c("lymph", "mcv", "rbc", "rdw", "wbc", "sbp", "phpfast")
+
+
+
+#training the models 
+
+#HD was skipped, since it requires all biomarkers to be present
+
+#KDM bioage using NHANES (separate training for men and women)
+
+#all
+load("/Users/kedda/Downloads/bios26211projectfinal/NHANES3.rda")
+load("/Users/kedda/Downloads/bios26211projectfinal/NHANES4.rda")
+biomarkers_with_age <- c("age","lymph", "mcv", "rbc", "rdw", "wbc", "dbp","sbp", "meanbp", "pulse", "phpfast")
+
+NHANES4_imputed <- NHANES4
+for (col in biomarkers_with_age) {
+  if (col %in% colnames(NHANES4_imputed)) { 
+    NHANES4_imputed[[col]][is.na(NHANES4_imputed[[col]])] <- mean(NHANES4_imputed[[col]], na.rm = TRUE)
+  }
+}
+NHANES3_imputed <- NHANES3
+for (col in biomarkers_with_age) {
+  if (col %in% colnames(NHANES3_imputed)) { 
+    NHANES3_imputed[[col]][is.na(NHANES3_imputed[[col]])] <- mean(NHANES3_imputed[[col]], na.rm = TRUE)
+  }
+}
+
+biomarkers_with_age_preg <- c("sampleID", "age","pregnant", "gender", "lymph", "mcv", "rbc", "rdw", "wbc", "dbp","sbp", "meanbp", "pulse", "phpfast")
+
+NHANES4_all <- NHANES4_imputed
+NHANES4_all <- NHANES4_all[, biomarkers_with_age_preg]
+head(NHANES4_all)
+
+NHANES3_all <- NHANES3_imputed
+NHANES3_all <- NHANES3_all[, biomarkers_with_age_preg]
+head(NHANES3_all)
+
+
+NHANES4 <- NHANES4_all
+NHANES3 <- NHANES3_all
+kdm_all <- kdm_nhanes(biomarkers = biomarkers_all)
+
+
+#PCA
+load("/Users/kedda/Downloads/bios26211projectfinal/NHANES3.rda")
+load("/Users/kedda/Downloads/bios26211projectfinal/NHANES4.rda")
+biomarkers_with_age_PCA <- c("age", "meanbp", "sbp", "dbp", "pulse", "rbc", "rdw", "mcv")
+
+NHANES4_imputed <- NHANES4
+for (col in biomarkers_with_age_PCA) {
+  if (col %in% colnames(NHANES4_imputed)) { 
+    NHANES4_imputed[[col]][is.na(NHANES4_imputed[[col]])] <- mean(NHANES4_imputed[[col]], na.rm = TRUE)
+  }
+}
+NHANES3_imputed <- NHANES3
+for (col in biomarkers_with_age_PCA) {
+  if (col %in% colnames(NHANES3_imputed)) {
+    NHANES3_imputed[[col]][is.na(NHANES3_imputed[[col]])] <- mean(NHANES3_imputed[[col]], na.rm = TRUE)
+  }
+}
+
+biomarkers_with_age_preg_PCA <- c("sampleID", "age","pregnant", "gender", "meanbp", "sbp", "dbp", "pulse", "rbc", "rdw", "mcv")
+
+NHANES4_PCA <- NHANES4_imputed
+NHANES4_PCA <- NHANES4_PCA[, biomarkers_with_age_preg_PCA]
+head(NHANES4_PCA)
+
+NHANES3_PCA <- NHANES3_imputed
+NHANES3_PCA <- NHANES3_PCA[, biomarkers_with_age_preg_PCA]
+head(NHANES3_PCA)
+
+NHANES4 <- NHANES4_PCA
+NHANES3 <- NHANES3_PCA
+kdm_PCA <- kdm_nhanes(biomarkers = biomarkers_PCA)
+
+#forward model
+load("/Users/kedda/Downloads/bios26211projectfinal/NHANES3.rda")
+load("/Users/kedda/Downloads/bios26211projectfinal/NHANES4.rda")
+biomarkers_with_age_FF <- c("age", "lymph", "mcv", "rbc", "rdw", "wbc", "sbp", "phpfast")
+
+NHANES4_imputed <- NHANES4
+for (col in biomarkers_with_age_FF) {
+  if (col %in% colnames(NHANES4_imputed)) { 
+    NHANES4_imputed[[col]][is.na(NHANES4_imputed[[col]])] <- mean(NHANES4_imputed[[col]], na.rm = TRUE)
+  }
+}
+NHANES3_imputed <- NHANES3
+for (col in biomarkers_with_age_FF) {
+  if (col %in% colnames(NHANES3_imputed)) {
+    NHANES3_imputed[[col]][is.na(NHANES3_imputed[[col]])] <- mean(NHANES3_imputed[[col]], na.rm = TRUE)
+  }
+}
+
+biomarkers_with_age_preg_FF <- c("sampleID","age","pregnant", "gender", "lymph", "mcv", "rbc", "rdw", "wbc", "sbp", "phpfast")
+
+NHANES4_FF <- NHANES4_imputed
+NHANES4_FF <- NHANES4_FF[, biomarkers_with_age_preg_FF]
+head(NHANES4_FF)
+
+NHANES3_FF <- NHANES3_imputed
+NHANES3_FF <- NHANES3_FF[, biomarkers_with_age_preg_FF]
+head(NHANES3_FF)
+
+NHANES4 <- NHANES4_FF
+NHANES3 <- NHANES3_FF
+kdm_FF <- kdm_nhanes(biomarkers = biomarkers_FF)
+
+
+#used claude for help with merging step, turns out you can only merge 2 at a time?
+kdm_data <- merge(kdm_all$data, kdm_PCA$data, by = "sampleID", suffixes = c("_all", "_PCA"))
+kdm_data <- merge(kdm_data, kdm_FF$data, by = "sampleID", suffixes = c("", "_forward"))
+colnames(kdm_data)[which(colnames(kdm_data) == "kdm")] <- "kdm_FF"
+
+agevar <- c("kdm_all", "kdm_PCA", "kdm_FF")
+
+label = c("KDM\nBiological Age (All Biomarkers)",
+          "KDM\nBiological Age (Top 7 Biomarkers from PCA)",
+          "KDM\nBiological Age (Top 7 Biomarkers from Forward Model)")
+          
+par(pin = c(20, 4))
+plot_ba(kdm_data, agevar, label)
+
+#phenoage using NHANES
+
+#changed function so it would allow me to use just my biomarkers -> ended up having to scrap since the PCA biomarkers kept breaking RStudio and decided that KDM would be sufficient to show improvement, especially since KDM originally gave the least variable output of the three models
+
+
+<!--
+phenoage_nhanes <- function(biomarkers) {
+    train = phenoage_calc(
+        data = NHANES3 %>% filter(age >= 20 & age <= 84) %>%
+          select(sampleID, all_of(biomarkers)),
+        biomarkers,
+        fit = NULL
+    )
+    test = phenoage_calc(
+        data = NHANES4 %>% filter(age >= 20) %>%
+          select(sampleID, all_of(biomarkers)),
+        biomarkers,
+        fit = train$fit
+    )
+    dat = left_join(NHANES4, test$data[, c("sampleID", "phenoage", "phenoage_advance")], by = "sampleID")
+    phenoage = list(data = dat, fit = train$fit)
+    class(phenoage) = append(class(phenoage), "phenoage")
+    return(phenoage)
+}
+
+
+#all
+load("/Users/kedda/Downloads/bios26211projectfinal/NHANES3.rda")
+load("/Users/kedda/Downloads/bios26211projectfinal/NHANES4.rda")
+biomarkers_with_age <- c("age","lymph", "mcv", "rbc", "rdw", "wbc", "dbp","sbp", "meanbp", "pulse", "phpfast")
+
+NHANES4_imputed <- NHANES4
+for (col in biomarkers_with_age) {
+  if (col %in% colnames(NHANES4_imputed)) { 
+    NHANES4_imputed[[col]][is.na(NHANES4_imputed[[col]])] <- mean(NHANES4_imputed[[col]], na.rm = TRUE)
+  }
+}
+NHANES3_imputed <- NHANES3
+for (col in biomarkers_with_age) {
+  if (col %in% colnames(NHANES3_imputed)) { 
+    NHANES3_imputed[[col]][is.na(NHANES3_imputed[[col]])] <- mean(NHANES3_imputed[[col]], na.rm = TRUE)
+  }
+}
+
+biomarkers_with_age_preg <- c("sampleID", "age","status","time", "gender", "lymph", "mcv", "rbc", "rdw", "wbc", "dbp","sbp", "meanbp", "pulse", "phpfast")
+
+NHANES4_all <- NHANES4_imputed
+NHANES4_all <- NHANES4_all[, biomarkers_with_age_preg]
+head(NHANES4_all)
+
+NHANES3_all <- NHANES3_imputed
+NHANES3_all <- NHANES3_all[, biomarkers_with_age_preg]
+head(NHANES3_all)
+
+
+NHANES4 <- NHANES4_all
+NHANES3 <- NHANES3_all
+phenoage_all <- phenoage_nhanes(biomarkers = biomarkers_with_age_preg)
+
+#PCA
+load("/Users/kedda/Downloads/bios26211projectfinal/NHANES3.rda")
+load("/Users/kedda/Downloads/bios26211projectfinal/NHANES4.rda")
+biomarkers_with_age_PCA <- c("age", "meanbp", "sbp", "dbp", "pulse", "rbc", "rdw", "mcv")
+
+NHANES4_imputed <- NHANES4
+for (col in biomarkers_with_age_PCA) {
+  if (col %in% colnames(NHANES4_imputed)) { 
+    NHANES4_imputed[[col]][is.na(NHANES4_imputed[[col]])] <- mean(NHANES4_imputed[[col]], na.rm = TRUE)
+  }
+}
+NHANES3_imputed <- NHANES3
+for (col in biomarkers_with_age_PCA) {
+  if (col %in% colnames(NHANES3_imputed)) {
+    NHANES3_imputed[[col]][is.na(NHANES3_imputed[[col]])] <- mean(NHANES3_imputed[[col]], na.rm = TRUE)
+  }
+}
+
+biomarkers_with_age_preg_PCA <- c("sampleID", "age","status","time", "gender", "meanbp", "sbp", "dbp", "pulse", "rbc", "rdw", "mcv")
+
+NHANES4_PCA <- NHANES4_imputed
+NHANES4_PCA <- NHANES4_PCA[, biomarkers_with_age_preg_PCA]
+head(NHANES4_PCA)
+
+NHANES3_PCA <- NHANES3_imputed
+NHANES3_PCA <- NHANES3_PCA[, biomarkers_with_age_preg_PCA]
+head(NHANES3_PCA)
+
+NHANES4 <- NHANES4_PCA
+NHANES3 <- NHANES3_PCA
+phenoage_PCA <- phenoage_nhanes(biomarkers = biomarkers_with_age_preg_PCA)
+-->
+
