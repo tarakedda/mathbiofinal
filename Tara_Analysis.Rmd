@@ -13,14 +13,11 @@ install.packages("ggcorrplot")
 library(ggcorrplot)  # for the heatmaps
 install.packages("caret")
 library(caret)       # in case of missing data
-install.packages("FactoMineR")
-library(FactoMineR)  # PCA
-install.packages("factoextra")
-library(factoextra)  # PCA
 install.packages("MASS")
 library(MASS) #regression
 install.packages("cli")
 library(cli)
+
 load("/Users/kedda/Downloads/bios26211projectfinal/NHANES3_HDTrain.rda")
 load("/Users/kedda/Downloads/bios26211projectfinal/NHANES3.rda")
 load("/Users/kedda/Downloads/bios26211projectfinal/NHANES4.rda")
@@ -104,4 +101,33 @@ head(NHANES4_scaled)
 cor_matrix <- cor(NHANES4_scaled[, biomarkers])
 ggcorrplot(cor_matrix, method = "square", type = "lower", lab = TRUE, outline.color = "black", colors = c("#009e73", "white", "#cc79a7"), title = "Correlation Matrix for Biomarkers With <10% Missing Data")
 
-#new!
+
+
+
+#ok so now that the correlation matrix is done, I will use PCA
+
+install.packages("FactoMineR")
+library(FactoMineR)  # PCA
+install.packages("factoextra")
+library(factoextra)  # PCA
+
+#this line calculates the PCA
+pca_res <- PCA(NHANES4_scaled[, biomarkers], scale.unit = TRUE, graph = FALSE)
+#identifies top 4 contributing biomarkers
+
+top_4_PCA <- names(sort(pca_res$var$contrib[,1], decreasing = TRUE))[1:4]
+print(top_4_PCA)
+#this function is annoying and it doesn't let me label the dimensions, so i will do that manuallly
+fviz_eig(pca_res, title = "Scree Plot of BioMarkers", add_labels = TRUE)
+top_10_PCA <- names(sort(pca_res$var$contrib[,1], decreasing = TRUE))[1:10]
+print(top_10_PCA)
+
+#forward model?
+install.packages("MASS", repos="http://cran.us.r-project.org")
+library(MASS)
+
+full_model <- lm(Biological_Age ~ ., data = NHANES4_scaled)
+
+step_model <- stepAIC(full_model, direction = "forward")
+
+summary(step_model)
