@@ -1,0 +1,77 @@
+
+---
+title: "Tara's HD Analysis"
+author: "Your Name"
+date: "`r Sys.Date()`"
+output: html_document
+---
+install.packages("tidyverse")
+library(tidyverse)   # lets me get the data
+install.packages("dplyr")
+library(dplyr)       # lets me edit the data
+install.packages("ggcorrplot")
+library(ggcorrplot)  # for the heatmaps
+install.packages("caret")
+library(caret)       # in case of missing data
+install.packages("FactoMineR")
+library(FactoMineR)  # PCA
+install.packages("factoextra")
+library(factoextra)  # PCA
+install.packages("MASS")
+library(MASS) #regression
+install.packages("cli")
+library(cli)
+load("/Users/kedda/Downloads/bios26211projectfinal/NHANES3_HDTrain.rda")
+load("/Users/kedda/Downloads/bios26211projectfinal/NHANES3.rda")
+load("/Users/kedda/Downloads/bios26211projectfinal/NHANES4.rda")
+
+#load bioage
+install.packages("devtools")
+devtools::install_github("dayoonkwon/BioAge")
+library(BioAge)
+
+# checking if there's missing vals
+colSums(is.na(NHANES4))
+#there ended up being a ton, so now I am going to compute the percent that is missing from each so I can choose only those that have enough data.
+missing_perc <- colSums(is.na(NHANES4)) / nrow(NHANES4)
+print(percent_missing)
+#looking at data visually, I decided that those with over 10% missing should be excluded from the biomarkers chosen
+NHANES4_filtered <- NHANES4[, missing_perc < 0.1]
+str(NHANES4_filtered)
+
+NHANES3_filtered <- NHANES3[, missing_perc < 0.1]
+str(NHANES3_filtered)
+#from these lists, I picked out all data that was listed as a "biomarker" in the dataset and then also age (chronological age) since it would be valuable to have that in the dataset later when we compare the determined biological age to chronological age
+
+#below are the biomarkers i chose. i had to exclude "neut" since even though it showed up as being <10% for NHANES3, it also only had NA in it so I got rid of it. see attached README for what each of these variables mean.
+biomarkers_with_age <- c("age","lymph", "mcv", "rbc", "rdw", "wbc", "dbp","sbp", "meanbp", "pulse", "phpfast")
+
+
+
+# impute NHANES4 and NHANES3 with means (basically replaces all the NA vals with mean for that so the program doesn't get confused during analysis)
+NHANES4_imputed <- NHANES4
+for (col in biomarkers_with_age) {
+  if (col %in% colnames(NHANES4_imputed)) {  # Ensure column exists
+    NHANES4_imputed[[col]][is.na(NHANES4_imputed[[col]])] <- mean(NHANES4_imputed[[col]], na.rm = TRUE)
+  }
+}
+NHANES3_imputed <- NHANES3
+for (col in biomarkers_with_age) {
+  if (col %in% colnames(NHANES3_imputed)) {  # Ensure column exists
+    NHANES3_imputed[[col]][is.na(NHANES3_imputed[[col]])] <- mean(NHANES3_imputed[[col]], na.rm = TRUE)
+  }
+}
+
+
+hd_result <- hd_calc(NHANES4_imputed, NHANES3_imputed, biomarkers_with_age)
+
+#this is the data with JUST the biomarkers I want
+hd_data_filtered <- hd_data[, biomarkers_with_age]
+head(hd_data_filtered)
+
+#scaling data so can use it for PCA and matrix analysis
+NHANES4_scaled <- NHANES4_imputed
+for (col in biomarkers_with_age) {
+  NHANES4_scaled[[col]] <- scale(NHANES4_scaled[[col]])
+}
+head(NHANES4_scaled)
