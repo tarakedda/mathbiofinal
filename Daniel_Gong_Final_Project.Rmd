@@ -1,0 +1,163 @@
+---
+title: "Daniel Gong Bio Final"
+output: html_document
+date: "2025-03-10"
+---
+
+```{r}
+missing_perc <- colSums(is.na(NHANES4)) / nrow(NHANES4)
+
+filtered_columns <- names(missing_perc[missing_perc < 0.25])
+
+NHANES4_filtered <- NHANES4[, filtered_columns]
+
+str(NHANES4_filtered)
+sum(missing_perc < 0.25)
+```
+```{r}
+non_numeric_cols <- sapply(NHANES4_filtered, function(x) !is.numeric(x))
+
+print(names(NHANES4_filtered)[non_numeric_cols])
+
+NHANES4_numeric <- NHANES4_filtered %>%
+  dplyr::select(where(is.numeric)) 
+
+NHANES4_scaled <- as.data.frame(scale(NHANES4_numeric))
+
+colnames(NHANES4_scaled)
+str(NHANES4_scaled)
+
+ncol(NHANES4_scaled) 
+```
+
+```{r}
+biomarker_variances <- apply(NHANES4_scaled, 2, var) 
+sorted_biomarkers <- sort(biomarker_variances, decreasing = TRUE) 
+print(sorted_biomarkers)
+```
+
+```{r}
+library(zoo)
+
+kernel_size <- 5  
+
+NHANES4_convolved <- NHANES4_scaled %>%
+  mutate(across(where(is.numeric), ~ rollapply(., width = kernel_size, FUN = mean, na.rm = TRUE, fill = "extend", align = "center")))
+
+str(NHANES4_convolved)
+```
+
+```{r}
+biomarker_ranks <- NHANES4_convolved %>%
+  summarise(across(everything(), sd, na.rm = TRUE)) %>%
+  pivot_longer(cols = everything(), names_to = "biomarker", values_to = "std_dev")
+
+colnames(biomarker_ranks)
+metadata_vars <- c("year", "wave", "time", "permth_int", "alp", "bun", "albumin", "health", "hba1c")
+
+filtered_biomarker_ranks <- biomarker_ranks %>%
+  dplyr::filter(!(biomarker %in% metadata_vars))
+
+top_biomarkers <- filtered_biomarker_ranks %>%
+  slice_max(order_by = std_dev, n = 8) %>%  
+  pull(biomarker) 
+print(top_biomarkers)
+NHANES4_selected <- NHANES4_convolved %>%
+  dplyr::select(any_of(top_biomarkers))  
+```
+
+```{r}
+library(dplyr)
+if (!is.null(top_biomarkers) && length(top_biomarkers) > 0) {
+  
+  valid_biomarkers <- intersect(top_biomarkers, colnames(NHANES4_convolved))
+  
+  if (length(valid_biomarkers) > 0) {
+    NHANES4_selected <- NHANES4_convolved[, valid_biomarkers, drop = FALSE]  
+    
+    str(NHANES4_selected)
+  } else {
+    print("Error: No valid biomarkers found in NHANES4_convolved.")
+  }
+
+} else {
+  print("Error: No biomarkers were selected. Check previous steps.")
+}
+```
+
+```{r}
+cor_matrix <- cor(NHANES4_selected, use = "pairwise.complete.obs")
+
+print(cor_matrix)
+```
+
+```{r}
+library(ggcorrplot)
+
+ggcorrplot(cor_matrix, 
+           method = "square",  # Change "color" to "square" or "circle"
+           type = "lower", 
+           lab = TRUE, 
+           title = "Correlation Heatmap of Selected Biomarkers")
+```
+
+```{r}
+library(ggplot2)
+library(tidyr)
+
+NHANES4_long <- NHANES4_selected %>%
+  pivot_longer(cols = everything(), names_to = "Biomarker", values_to = "Value")
+
+ggplot(NHANES4_long, aes(x = Biomarker, y = Value)) +
+  geom_boxplot() +
+  coord_flip() +  # Flip to make labels readable
+  theme_minimal() +
+  labs(title = "Boxplot of Selected Biomarkers", x = "Biomarker", y = "Value")
+```
+
+```{r}
+pairs(NHANES4_selected, main = "Scatterplot Matrix of Selected Biomarkers")
+```
+
+```{r}
+#install.packages("MASS", repos="http://cran.us.r-project.org")
+library(MASS)
+
+biomarkers <- c("rdw", "ttbl", "albumin_gL", "lnalp", "phpfast", "lnbun", "basopa", "totchol")
+
+NHANES4_imputed <- NHANES4
+
+missing_cols <- setdiff(biomarkers_with_age, colnames(NHANES4_imputed))
+if (length(missing_cols) > 0) {
+  stop("The following biomarkers are missing from NHANES4: ", paste(missing_cols, collapse = ", "))
+}
+
+for (col in biomarkers_with_age) {
+  if (col %in% colnames(NHANES4_imputed)) {  
+    NHANES4_imputed[[col]][is.na(NHANES4_imputed[[col]])] <- mean(NHANES4_imputed[[col]], na.rm = TRUE)
+  }
+}
+
+NHANES4_scaled <- NHANES4_imputed
+
+for (col in biomarkers) {
+  if (col %in% colnames(NHANES4_scaled)) {
+    NHANES4_scaled[[col]] <- scale(NHANES4_scaled[[col]])
+  } else {
+    warning(paste("Warning: Column", col, "not found in NHANES4_scaled"))
+  }
+}
+
+if (!"kdm0" %in% colnames(NHANES4_scaled)) {
+  stop("Error: 'kdm0' column is missing from NHANES4_scaled.")
+}
+
+model_data <- NHANES4_scaled[, c("kdm0", biomarkers), drop = FALSE]
+
+full_model <- lm(kdm0 ~ ., data = model_data)
+
+step_model <- stepAIC(full_model, direction = "forward")
+
+summary(step_model)
+```
+
