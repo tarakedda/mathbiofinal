@@ -1,0 +1,182 @@
+---
+title: "bioedits"
+output: html_document
+date: "2025-03-13"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+
+### Uncomment this if the first time, otherwise leave commented
+#install.packages('nhanesA')
+#install.packages('foreign')
+
+#install.packages("devtools")
+#devtools::install_github("dayoonkwon/BioAge")
+
+library(foreign)
+library(nhanesA)
+library(tidyverse)
+library(gridExtra)
+library(broom)
+require(rms)
+library(ggplot2)
+library(naniar)
+library(mosaic)
+require(dplyr)
+require(brms)
+library(pROC)
+library(AUC)
+library(viridis)
+library(BioAge) 
+library(dplyr)
+```
+
+
+```{r}
+setwd("/Users/simar/Documents/BIOS26211/26211_FinalProject")
+
+load("/Users/simar/Documents/BIOS26211/26211_FinalProject/NHANES3_HDTrain.rda")
+load("/Users/simar/Documents/BIOS26211/26211_FinalProject/NHANES3.rda")
+load("/Users/simar/Documents/BIOS26211/26211_FinalProject/NHANES4.rda")
+
+load("NHANES3.rda")  # training dataset
+load("NHANES4.rda")  # test dataset
+```
+
+
+```{r}
+# run once!!
+#install.packages(c("glmnet", "MASS", "ggplot2"))
+
+library(glmnet)  
+library(MASS)    
+library(ggplot2) 
+
+```
+
+
+```{r}
+# Check missing values in NHANES4
+missing_perc_NHANES4 <- colSums(is.na(NHANES4)) / nrow(NHANES4)
+print(missing_perc_NHANES4)
+
+# Remove "neut" (if necessary)
+biomarkers_NHANES4 <- setdiff(names(NHANES4), "neut")
+
+# Check missing values in NHANES3
+missing_perc_NHANES3 <- colSums(is.na(NHANES3)) / nrow(NHANES3)
+print(missing_perc_NHANES3)
+
+# Remove "neut" from NHANES3 as well
+biomarkers_NHANES3 <- setdiff(names(NHANES3), "neut")
+
+# Identify numeric columns
+numeric_biomarkers_NHANES3 <- biomarkers_NHANES3[sapply(NHANES3[, biomarkers_NHANES3, drop = FALSE], is.numeric)]
+numeric_biomarkers_NHANES4 <- biomarkers_NHANES4[sapply(NHANES4[, biomarkers_NHANES4, drop = FALSE], is.numeric)]
+cat("Numeric biomarkers in NHANES3:\n")
+print(numeric_biomarkers_NHANES3)
+cat("Numeric biomarkers in NHANES4:\n")
+print(numeric_biomarkers_NHANES4)
+
+### CHANGED: Scale NHANES3 and NHANES4 using the character vectors of numeric columns
+NHANES3_scaled <- NHANES3
+NHANES3_scaled[, numeric_biomarkers_NHANES3] <- scale(NHANES3[, numeric_biomarkers_NHANES3])
+
+NHANES4_scaled <- NHANES4
+NHANES4_scaled[, numeric_biomarkers_NHANES4] <- scale(NHANES4[, numeric_biomarkers_NHANES4])
+
+# Define predictors (excluding kdm0)
+predictors_full <- setdiff(names(NHANES3_scaled), "kdm0")
+cat("All predictors (before filtering non-numeric):\n")
+print(predictors_full)
+
+# Remove rows with missing kdm0 values
+complete_idx <- complete.cases(NHANES3_scaled$kdm0)
+NHANES3_filtered <- NHANES3_scaled[complete_idx, ]
+
+# Identify numeric predictors
+numeric_logical <- sapply(NHANES3_filtered[, biomarkers_NHANES3, drop = FALSE], is.numeric)
+numeric_predictors <- biomarkers_NHANES3[numeric_logical]
+cat("Numeric predictors after filtering:\n")
+print(numeric_predictors)
+
+# Remove predictors that are entirely NA
+numeric_predictors <- numeric_predictors[
+  sapply(NHANES3_filtered[, numeric_predictors, drop = FALSE], function(x) !all(is.na(x)))
+]
+
+# Impute missing values with column means
+for (col in numeric_predictors) {
+  if (any(is.na(NHANES3_filtered[[col]]))) {
+    NHANES3_filtered[[col]][is.na(NHANES3_filtered[[col]])] <- mean(NHANES3_filtered[[col]], na.rm = TRUE)
+  }
+}
+
+# Create training matrices
+x_train <- as.matrix(NHANES3_filtered[, numeric_predictors])
+y_train <- NHANES3_filtered$kdm0
+
+# Check for NA values in predictors
+if (any(is.na(x_train))) {
+  stop("There are still missing values in the predictors!")
+} else {
+  cat("No missing values remain in the predictor matrix.\n")
+}
+
+# Run LASSO with cross-validation
+cv_lasso <- cv.glmnet(x_train, y_train, alpha = 1)
+best_lambda <- cv_lasso$lambda.min  # Optimal lambda
+
+# Fit LASSO model with optimal lambda
+lasso_model <- glmnet(x_train, y_train, alpha = 1, lambda = best_lambda)
+
+# Create a data frame for the cross-validation curve
+cv_df <- data.frame(
+  log_lambda = log(cv_lasso$lambda),
+  cvm = cv_lasso$cvm,
+  cvup = cv_lasso$cvup,
+  cvlo = cv_lasso$cvlo
+)
+
+# Plot LASSO Cross-Validation Curve
+ggplot(cv_df, aes(x = log_lambda, y = cvm)) +
+  geom_line(color = "steelblue", size = 1.2) +
+  geom_ribbon(aes(ymin = cvlo, ymax = cvup), fill = "steelblue", alpha = 0.2) +
+  geom_vline(xintercept = log(best_lambda), linetype = "dashed", color = "red", size = 1) +
+  labs(title = "LASSO Cross-Validation Curve",
+       x = "log(Lambda)",
+       y = "Mean Cross-Validation Error") +
+  theme_minimal() +
+  theme(text = element_text(size = 14))
+
+# Extract selected biomarkers
+selected_biomarkers <- rownames(coef(lasso_model))[coef(lasso_model)[, 1] != 0]
+
+cat("LASSO Selected Biomarkers:\n")
+print(selected_biomarkers)
+
+```
+
+```{r}
+selected_biomarkers_clean <- selected_biomarkers[selected_biomarkers != "(Intercept)"]
+
+# Construct formula using LASSO-selected predictors
+lasso_formula <- as.formula(paste("kdm0 ~", paste(selected_biomarkers_clean, collapse = " + ")))
+
+# Fit the linear model on NHANES4_scaled using the LASSO-selected predictors
+lasso_lm_model <- lm(lasso_formula, data = NHANES4_scaled)
+
+# Print the full model summary (includes all predictors' stats)
+cat("\nLASSO-based Linear Regression Model Summary (NHANES4_scaled):\n")
+print(summary(lasso_lm_model))
+
+### CHANGED: Use broom to print a tidy table of all predictors and their statistics
+library(broom)
+cat("\nDetailed Coefficient Table (using broom::tidy):\n")
+tidy_lasso <- tidy(lasso_lm_model)
+print(tidy_lasso)
+
+```
+
